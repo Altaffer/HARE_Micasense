@@ -26,6 +26,7 @@ else:
 # Initialize persistent session
 s = requests.Session() 
 
+
 def main():
     """
     Making HTTP requests to micasense and returning image data
@@ -50,60 +51,84 @@ def main():
     #status()
     #network_status()
 
-    # Initialize ROS Parameters
-    mica_pub = rospy.Publisher('micasense_data', micasense)
-    rospy.init_node('micasense_wedge', anonymous=True)
-    bridge = CvBridge()
+    # Check starting file number for cache
+    num = get_cache_number()
+
+    # Multiprocessing stuff
+    process1 = Process(target=data_load_process,args=(num,))
+    process1.start()
+    process2 = Process(target=capture_process)
+    process2.start()
+    process1.join()
+    process2.join()
+
+
+def capture_process():
+    
+    ## THREAD 1
 
     # Collect data while ROS is not shutdown
     while not rospy.is_shutdown():
 
-
         # Start thread for initiating captures
+        initiate_capture()
 
 
-        start = time.time()
+def data_load_process(i):
+
         
-        # Initiate capture and return paths to cached files
-        paths = initiate_capture()
-        
-        end = time.time()
-        print('Time taken to initiate capture {}'.format(round(end-start,2)))
+    # Initialize ROS Parameters
+    mica_pub = rospy.Publisher('micasense_data', micasense,queue_size=10)
+    rospy.init_node('micasense_wedge', anonymous=True)
+    bridge = CvBridge()
 
-        # Initialize micasense message
-        mica_msg = micasense()
+    # Initialize micasense message
+    mica_msg = micasense()
+    
+    ## THREAD 2
 
-        # Load image from each band and update micasense message
-        start=time.time()
-        for key,value in paths.items():
-            
-            file_path = host[:-1]+value
-            print(file_path)
+    while not rospy.is_shutdown():
+
+
+        # Format file path
+        file_path = '{}images/tmp{}.tif'.format(host,i)
+
+        # Try to load file
+        try:
 
             img_arr = retrieve_data_from_file(file_path)
-
+          
             # Convert numpy array to ROS array
             ros_img = bridge.cv2_to_imgmsg(img_arr,encoding="passthrough")
 
             # Update micasense message (Note: Not 100% on these but I assumed images are ordered by wavelength)
-            if key == '1': 
+            if i%5 == 0: 
                 mica_msg.img_b = ros_img
-            elif key == '2':
+            elif i%5 == 1:
                 mica_msg.img_g = ros_img
-            elif key == '3':
+            elif i%5 == 2:
                 mica_msg.img_r = ros_img
-            elif key == '4':
+            elif i%5 == 3:
                 mica_msg.img_nir = ros_img
-            elif key == '5': 
+            elif i%5 == 4: 
                 mica_msg.img_swir = ros_img
 
-            #print('Array shape: '+str(img_arr.shape))
-            #input('press enter to continue')
-        end = time.time()
-        print('Time taken to load file {}'.format(round(end-start,2)))
-        # Publish full ROS message    
-        mica_pub.publish(mica_msg)
-            
+                # Publish full ROS message after loading last band
+                mica_pub.publish(mica_msg)
+                #print('message published')
+
+                # Initialize micasense message
+                mica_msg = micasense()
+
+            # Increment counter for loading next file
+            i += 1 
+
+        except Exception as e:
+            #print(e)
+            #print(file_path)
+            continue # Skip rest of loop
+
+
 
 def initiate_capture(store_capture=False):
     """
@@ -161,6 +186,20 @@ def retrieve_data_from_file(file_path):
     return img_data
 
 
+def get_cache_number():
+
+    paths = initiate_capture()
+
+    last_file = paths['5']
+
+    last_file = last_file.split('tmp')[-1]
+
+    num = last_file.split('.')[0]
+
+    num = int(num)+1
+    
+    return num
+
 def clear_sd_storage(): # Not working right now
     """
     Clears all saved files on the Micasense SD card
@@ -177,10 +216,11 @@ def clear_sd_storage(): # Not working right now
     network_status(storage=True)
 
     # Define request path
-    request_string = 'reformatsdcard'
+    request_path = host+'reformatsdcard'
+    #print(request_path)
 
     # Make post request
-    r = requests.post(host+request_string,data={'erase_all_data':True})
+    r = s.post(request_path,data={"erase_all_data":True})
 
     # Print result
     print(r.json()['message'])
@@ -204,6 +244,7 @@ def config(request_type='GET',**kwargs):
 
     # Define config path
     config_path = host+'config/'
+    #print(config_path)
 
     # Handle GET requests
     if request_type == 'GET':
