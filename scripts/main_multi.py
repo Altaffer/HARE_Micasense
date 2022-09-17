@@ -6,6 +6,7 @@
 
 
 # Import Libraries
+import cv2
 import requests
 import numpy as np
 from PIL import Image
@@ -50,9 +51,13 @@ def main():
     #config('POST', streaming_enable=False)
     #status()
     #network_status()
-
+	
+    print('Testing on jetson')
+	
     # Check starting file number for cache
     num = get_cache_number()
+
+    print('Retrieved cache number successfully')
 
     # Multiprocessing stuff
     process1 = Process(target=data_load_process,args=(num,))
@@ -115,7 +120,7 @@ def data_load_process(i):
 
                 # Publish full ROS message after loading last band
                 mica_pub.publish(mica_msg)
-                #print('message published')
+                print('message published')
 
                 # Initialize micasense message
                 mica_msg = micasense()
