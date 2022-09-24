@@ -6,6 +6,7 @@
 
 
 # Import Libraries
+import cv2
 import requests
 import numpy as np
 from PIL import Image
@@ -34,48 +35,53 @@ def main():
     Documentation available here:
     https://micasense.github.io/rededge-api/api/http.html
 
-    GET request arguments (argument - type - default value)
-    anti_sat - bool - false (use anti-saturation rules for image capture)
-    block - bool - false (if true, HTTP request will not return until capture is complete)
-    detect_panel - false (if true, camera will not return image until a reflectance panel is detected)
-    preview - bool - false (if true, current preview image is updated)
-    cache_jpeg - int - /config file (bitmask for bands to capture, use 31 for all 5 bands)
-    cache_raw - int - /config file
-    store_capture - bool - true (store image to SD card)
+    Available functions for checking Micasense statuses and configs:
+
+    clear_sd_storage() # NOT WORKING
+    config() 
+    config('POST', streaming_enable=False)
+    status()
+    network_status()
     """
-    
-    # Available functions for checking Micasense statuses and configs
-    #clear_sd_storage() # NOT WORKING
-    #config() 
-    #config('POST', streaming_enable=False)
-    #status()
-    #network_status()
 
     # Check starting file number for cache
     num = get_cache_number()
 
-    # Multiprocessing stuff
+
+    # Run data load and capture process together with multiprocessing module
     process1 = Process(target=data_load_process,args=(num,))
     process1.start()
+
     process2 = Process(target=capture_process)
     process2.start()
+
     process1.join()
     process2.join()
 
 
 def capture_process():
+    """
+    Simple function to be used with multiprocessing module to continually make capture requests to the micasense. 
     
-    ## THREAD 1
+    This function will continue making capture requests until the micasense loses power.
+    """
 
     # Collect data while ROS is not shutdown
     while not rospy.is_shutdown():
 
-        # Start thread for initiating captures
         initiate_capture()
 
 
 def data_load_process(i):
+    """
+    This function continually loads all files from the cache in order (FIFO).
 
+    Inputs:
+    i - first file number to start downloading
+
+    Outputs:
+    none (ROS messages will continually be published)
+    """
         
     # Initialize ROS Parameters
     mica_pub = rospy.Publisher('micasense_data', micasense,queue_size=10)
@@ -84,11 +90,9 @@ def data_load_process(i):
 
     # Initialize micasense message
     mica_msg = micasense()
-    
-    ## THREAD 2
 
+    # Download data while ROS is not shutdown
     while not rospy.is_shutdown():
-
 
         # Format file path
         file_path = '{}images/tmp{}.tif'.format(host,i)
@@ -96,6 +100,7 @@ def data_load_process(i):
         # Try to load file
         try:
 
+            # If this fails, loop will keep trying until it succeeds 
             img_arr = retrieve_data_from_file(file_path)
           
             # Convert numpy array to ROS array
@@ -115,51 +120,52 @@ def data_load_process(i):
 
                 # Publish full ROS message after loading last band
                 mica_pub.publish(mica_msg)
-                #print('message published')
 
-                # Initialize micasense message
+                #print('message published') # Optional print message
+
+                # Initialize micasense message for next round (This could potentially be removed)
                 mica_msg = micasense()
 
             # Increment counter for loading next file
             i += 1 
 
         except Exception as e:
-            #print(e)
-            #print(file_path)
+            
+            #print(e) # For debugging
+            #print(file_path) # For debugging
+            
             continue # Skip rest of loop
 
 
-
-def initiate_capture(store_capture=False):
+def initiate_capture(store_capture=False,block=True,bitmask=31,cache_type='raw'):
     """
     This function intiates a capture and returns the file paths to the captured images
-    First image taken will be /images/tmp0.tif
+    First image taken upon power up will be /images/tmp0.tif
 
     Inputs:
     store_capture = boolean - determines whether or not to store images to sd card on micasense (default is false)
+    block = boolean - When 'true', the HTTP request will not return until the capture is complete (default is True)
+    bitmask = int(1-31) - determines which bands are captured. Use 31 for all 5 bands or 8 for red edge only (default is 31)
+    cache_type = string - acceptable values are either 'raw' or 'jpeg' (default is raw)
 
     Outputs:
     paths = dictionary of file paths on micasense (using cache)
     """
 
-    # Define capture parameters
-    block = True
-    bitmask = 31 # Capture all 5 bands
-    #bitmask = 8 # Capture red edge only
-    cache_type = 'raw'
-
     # Create request string
     request_string = f"capture?cache_{cache_type}={bitmask}&block={block}&store_capture={store_capture}" # For cache
     
     # Make capture request to Micasense
-    #print('Initiating capture request')
+
+    #print('Initiating capture request') # Optional print message
     
     r = s.get(host+request_string)
 
-    data = r.json()
+    data = r.json() # Convert to json
 
     # Grab paths from JSON data
-    paths = data['raw_cache_path']
+    path_type = '{}_cache_path'.format(cache_type)
+    paths = data[path_type]
 
     return paths
 
@@ -179,54 +185,40 @@ def retrieve_data_from_file(file_path):
     r = s.get(file_path,stream=True)
 
     # Convert bytes to numpy array and reshape to image dimensions
-    img_data = np.frombuffer(r.content,dtype=np.dtype(np.uint16)) #,offset=5,count=1228800)
+    img_data = np.frombuffer(r.content,dtype=np.dtype(np.uint16)) #,offset=5,count=1228800) # Can try messing around with this for marginal speed improvements
     img_data = img_data[4:1228804] # Magic numbers to make it work
-    img_data = img_data.reshape(960,1280)
+    img_data = img_data.reshape(960,1280) # This is the resolution provided by micasense
     
     return img_data
 
 
 def get_cache_number():
-
-    paths = initiate_capture()
-
-    last_file = paths['5']
-
-    last_file = last_file.split('tmp')[-1]
-
-    num = last_file.split('.')[0]
-
-    num = int(num)+1
-    
-    return num
-
-def clear_sd_storage(): # Not working right now
     """
-    Clears all saved files on the Micasense SD card
+    Initiates the first capture and returns the file number to begin the download process with.
+    When this script is first executed it will be 0. But each capture will increase the number.
+    This function is used to enable the script to run without a global counter or file list.
 
     Inputs:
     none
 
     Outputs:
-    none (statistics printed to terminal)
+    num = int - number of the first file captured
     """
 
-    print('Clearing SD card storage on Micasense')
-    print('Storage before reformatting')
-    network_status(storage=True)
+    # Initiate the first capture and return the paths
+    paths = initiate_capture()
 
-    # Define request path
-    request_path = host+'reformatsdcard'
-    #print(request_path)
+    # Get path to first capture
+    last_file = paths['1'] 
 
-    # Make post request
-    r = s.post(request_path,data={"erase_all_data":True})
+    # Split the path twice to get the number
+    last_file = last_file.split('tmp')[-1]
+    num = last_file.split('.')[0]
 
-    # Print result
-    print(r.json()['message'])
-
-    print('Storage after reformatting')
-    network_status(storage=True)
+    # Convert from string to int
+    num = int(num)
+    
+    return num
 
 
 def config(request_type='GET',**kwargs):
@@ -320,6 +312,35 @@ def network_status(storage=False):
         for device in data:
             for key,val in device.items():
                 print(str(key)+'='+str(val))
+
+
+def clear_sd_storage(): # Not working right now
+    """
+    Clears all saved files on the Micasense SD card
+
+    Inputs:
+    none
+
+    Outputs:
+    none (statistics printed to terminal)
+    """
+
+    print('Clearing SD card storage on Micasense')
+    print('Storage before reformatting')
+    network_status(storage=True)
+
+    # Define request path
+    request_path = host+'reformatsdcard'
+    #print(request_path)
+
+    # Make post request
+    r = s.post(request_path,data={"erase_all_data":True})
+
+    # Print result
+    print(r.json()['message'])
+
+    print('Storage after reformatting')
+    network_status(storage=True)
 
 
 if __name__ == '__main__':
