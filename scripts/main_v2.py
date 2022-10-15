@@ -9,7 +9,7 @@
 import cv2
 import requests
 import numpy as np
-from PIL import Image
+#from PIL import Image
 import time
 from cv_bridge import CvBridge
 import rospy
@@ -24,9 +24,13 @@ if wifi:
 else:
     host = "http://192.168.1.83/"
 
+# Initialize ROS Parameters
+mica_pub = rospy.Publisher('micasense_data', micasense)
+rospy.init_node('micasense_wedge', anonymous=True)
+bridge = CvBridge()
+
 # Initialize persistent session
 s = requests.Session() 
-
 
 def main():
     """
@@ -44,19 +48,86 @@ def main():
     network_status()
     """
 
-    # Check starting file number for cache
-    num = get_cache_number()
+    # Get start time for testing
+    start = time.time() 
+    i = 0
+
+    # Collect data while ROS is not shutdown
+    while not rospy.is_shutdown():
+
+        try:
+            # Initiate capture and return paths to cached files
+            paths = initiate_capture()
+
+            # Download files and create ROS message object
+            mica_msg = load_data_from_files(paths)
+
+            # Publish full ROS message    
+            mica_pub.publish(mica_msg)
+            i += 1
+
+            if i%10 == 0:
+                print(f'{i} messages published')
+            
+
+            if i%1000 == 0:
+
+                end = time.time()
+
+                script_time = round(end-start,2)
+
+                print(f'Script has run for {script_time} seconds before failing')
+
+        except Exception as e: 
+
+            fail = time.time()
+
+            print(e)
+
+            fail_time = round(fail-start,2)
+
+            print(f'Script ran for {fail_time} seconds before failing')
+            exit()
 
 
-    # Run data load and capture process together with multiprocessing module
-    process1 = Process(target=data_load_process,args=(num,))
-    process1.start()
+def load_data_from_files(paths):
+    """
+    This function continually loads all files specified in the input
 
-    process2 = Process(target=capture_process)
-    process2.start()
+    Inputs:
+    paths - dictionary of file names
 
-    process1.join()
-    process2.join()
+    Outputs:
+    mica_msg - ROS custom message for micasense data
+    """   
+
+    # Initialize micasense message
+    mica_msg = micasense()
+
+    # Load image from each band and update micasense message
+    for key,value in paths.items():
+        
+        file_path = host[:-1]+value
+        #print(file_path)
+
+        img_arr = retrieve_data_from_file(file_path)
+
+        # Convert numpy array to ROS array
+        ros_img = bridge.cv2_to_imgmsg(img_arr,encoding="passthrough")
+
+        # Update micasense message (Note: Not 100% on these but I assumed images are ordered by wavelength)
+        if key == '1': 
+            mica_msg.img_b = ros_img
+        elif key == '2':
+            mica_msg.img_g = ros_img
+        elif key == '3':
+            mica_msg.img_r = ros_img
+        elif key == '4':
+            mica_msg.img_nir = ros_img
+        elif key == '5': 
+            mica_msg.img_swir = ros_img
+
+    return mica_msg
 
 
 def capture_process():
