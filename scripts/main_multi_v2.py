@@ -121,7 +121,7 @@ def data_load_process(i):
                 # Publish full ROS message after loading last band
                 mica_pub.publish(mica_msg)
 
-                #print('message published') # Optional print message
+                print('message published') # Optional print message
 
                 # Initialize micasense message for next round (This could potentially be removed)
                 mica_msg = micasense()
