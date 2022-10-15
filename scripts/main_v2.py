@@ -66,8 +66,8 @@ def main():
             mica_pub.publish(mica_msg)
             i += 1
 
-            if i%10 == 0:
-                print(f'{i} messages published')
+            #if i%10 == 0:
+            print(f'{i} messages published')
             
 
             if i%1000 == 0:
@@ -86,8 +86,8 @@ def main():
 
             fail_time = round(fail-start,2)
 
-            print(f'Script ran for {fail_time} seconds before failing')
-            exit()
+            print(f'Script ran for {fail_time} seconds before a failure')
+            #exit()
 
 
 def load_data_from_files(paths):
@@ -253,7 +253,7 @@ def retrieve_data_from_file(file_path):
     """
 
     # Get file object from Micasense
-    r = s.get(file_path,stream=True)
+    r = s.get(file_path,stream=True,timeout=0.01)
 
     # Convert bytes to numpy array and reshape to image dimensions
     img_data = np.frombuffer(r.content,dtype=np.dtype(np.uint16)) #,offset=5,count=1228800) # Can try messing around with this for marginal speed improvements
