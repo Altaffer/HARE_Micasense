@@ -66,27 +66,22 @@ def main():
             mica_pub.publish(mica_msg)
             i += 1
 
-            #if i%10 == 0:
-            print(f'{i} messages published')
+            if i%100 == 0:
+            	print(f'{i} messages published')
             
 
             if i%1000 == 0:
 
                 end = time.time()
 
-                script_time = round(end-start,2)
+                script_time = round((end-start)/60,2)
 
-                print(f'Script has run for {script_time} seconds before failing')
+                print(f'Script has been running for {script_time} minutes')
 
         except Exception as e: 
 
-            fail = time.time()
-
             print(e)
 
-            fail_time = round(fail-start,2)
-
-            print(f'Script ran for {fail_time} seconds before a failure')
             #exit()
 
 
@@ -253,7 +248,7 @@ def retrieve_data_from_file(file_path):
     """
 
     # Get file object from Micasense
-    r = s.get(file_path,stream=True,timeout=0.01)
+    r = s.get(file_path,stream=True,timeout=0.5)
 
     # Convert bytes to numpy array and reshape to image dimensions
     img_data = np.frombuffer(r.content,dtype=np.dtype(np.uint16)) #,offset=5,count=1228800) # Can try messing around with this for marginal speed improvements

@@ -43,31 +43,12 @@ def main():
     status()
     network_status()
     """
-<<<<<<< HEAD
 
     # Check starting file number for cache
     num = get_cache_number()
 
 
     # Run data load and capture process together with multiprocessing module
-=======
-    
-    # Available functions for checking Micasense statuses and configs
-    #clear_sd_storage() # NOT WORKING
-    #config() 
-    #config('POST', streaming_enable=False)
-    #status()
-    #network_status()
-	
-    print('Testing on jetson')
-	
-    # Check starting file number for cache
-    num = get_cache_number()
-
-    print('Retrieved cache number successfully')
-
-    # Multiprocessing stuff
->>>>>>> c5ea5067d8f52f4f7fce945e806b87cff8ad1ca0
     process1 = Process(target=data_load_process,args=(num,))
     process1.start()
 
@@ -139,12 +120,8 @@ def data_load_process(i):
 
                 # Publish full ROS message after loading last band
                 mica_pub.publish(mica_msg)
-<<<<<<< HEAD
-=======
-                print('message published')
->>>>>>> c5ea5067d8f52f4f7fce945e806b87cff8ad1ca0
 
-                #print('message published') # Optional print message
+                print('message published') # Optional print message
 
                 # Initialize micasense message for next round (This could potentially be removed)
                 mica_msg = micasense()
@@ -227,6 +204,8 @@ def get_cache_number():
     Outputs:
     num = int - number of the first file captured
     """
+
+    print('Getting starting number for cache')
 
     # Initiate the first capture and return the paths
     paths = initiate_capture()
