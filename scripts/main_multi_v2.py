@@ -9,7 +9,6 @@
 import cv2
 import requests
 import numpy as np
-from PIL import Image
 import time
 from cv_bridge import CvBridge
 import rospy
@@ -27,6 +26,33 @@ else:
 # Initialize persistent session
 s = requests.Session() 
 
+# Class definition for global counter variable
+class Counter():
+
+    def __init__(self):
+        self.x = 0
+
+    def __str__(self):
+        return f'global counter = {self.x}'
+
+    def incr(self):
+
+        if self.x == 2:
+            raise Exception('Global counter variable can not be higher than 2')
+
+        else:
+            self.x += 1
+
+    def decr(self):
+        print(self.x)
+        if self.x == 0:
+            pass # Prevent value from going negative
+
+        else:
+            self.x -= 1
+        print(self.x)
+
+counter = 0
 
 def main():
     """
@@ -45,11 +71,10 @@ def main():
     """
 
     # Check starting file number for cache
-    num = get_cache_number()
-
+    i = get_cache_number()
 
     # Run data load and capture process together with multiprocessing module
-    process1 = Process(target=data_load_process,args=(num,))
+    process1 = Process(target=data_load_process,args=(i,))
     process1.start()
 
     process2 = Process(target=capture_process)
@@ -66,10 +91,17 @@ def capture_process():
     This function will continue making capture requests until the micasense loses power.
     """
 
+    #print('Beginning capture process')
+    global counter
+
     # Collect data while ROS is not shutdown
     while not rospy.is_shutdown():
 
-        initiate_capture()
+        if counter < 2:
+
+            initiate_capture()
+
+            print(counter)
 
 
 def data_load_process(i):
@@ -83,6 +115,10 @@ def data_load_process(i):
     none (ROS messages will continually be published)
     """
         
+    #print('Beginning data load process')
+
+    global counter
+
     # Initialize ROS Parameters
     mica_pub = rospy.Publisher('micasense_data', micasense,queue_size=10)
     rospy.init_node('micasense_wedge', anonymous=True)
@@ -91,11 +127,14 @@ def data_load_process(i):
     # Initialize micasense message
     mica_msg = micasense()
 
+    # Initialize variable to keep track of messages printed
+    num = 0
+
     # Download data while ROS is not shutdown
     while not rospy.is_shutdown():
 
         # Format file path
-        file_path = '{}images/tmp{}.tif'.format(host,i)
+        file_path = f'{host}images/tmp{i}.tif'
 
         # Try to load file
         try:
@@ -118,10 +157,16 @@ def data_load_process(i):
             elif i%5 == 4: 
                 mica_msg.img_swir = ros_img
 
+                if counter != 0:
+
+                    counter = counter - 1
+
                 # Publish full ROS message after loading last band
                 mica_pub.publish(mica_msg)
-
-                print('message published') # Optional print message
+                num += 1
+                
+                print(f'{num} messages published') # Optional print message
+                print(counter)
 
                 # Initialize micasense message for next round (This could potentially be removed)
                 mica_msg = micasense()
@@ -157,14 +202,19 @@ def initiate_capture(store_capture=False,block=True,bitmask=31,cache_type='raw')
     
     # Make capture request to Micasense
 
-    #print('Initiating capture request') # Optional print message
+    print('Initiating capture request') # Optional print message
     
-    r = s.get(host+request_string)
+    r = s.get(host+request_string,timeout=1)
+    
+    # Update global counter variable
+    global counter
+    counter = counter + 1
+    print(counter)
 
     data = r.json() # Convert to json
 
     # Grab paths from JSON data
-    path_type = '{}_cache_path'.format(cache_type)
+    path_type = f'{cache_type}_cache_path'
     paths = data[path_type]
 
     return paths
@@ -182,7 +232,7 @@ def retrieve_data_from_file(file_path):
     """
 
     # Get file object from Micasense
-    r = s.get(file_path,stream=True)
+    r = s.get(file_path,stream=True,timeout=1)
 
     # Convert bytes to numpy array and reshape to image dimensions
     img_data = np.frombuffer(r.content,dtype=np.dtype(np.uint16)) #,offset=5,count=1228800) # Can try messing around with this for marginal speed improvements
@@ -211,11 +261,11 @@ def get_cache_number():
     paths = initiate_capture()
 
     # Get path to first capture
-    last_file = paths['1'] 
+    first_file = paths['1'] 
 
     # Split the path twice to get the number
-    last_file = last_file.split('tmp')[-1]
-    num = last_file.split('.')[0]
+    first_file = first_file.split('tmp')[-1]
+    num = first_file.split('.')[0]
 
     # Convert from string to int
     num = int(num)
