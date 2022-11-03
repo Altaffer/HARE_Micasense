@@ -15,7 +15,7 @@ from cv_bridge import CvBridge
 import rospy
 from micasense_wedge.msg import micasense
 from multiprocessing import Process,cpu_count
-
+from matplotlib import pyplot as plt
 
 # Define global variables
 wifi = False # If connecting through ethernet set to false
@@ -25,7 +25,7 @@ else:
     host = "http://192.168.1.83/"
 
 # Initialize ROS Parameters
-mica_pub = rospy.Publisher('micasense_data', micasense)
+mica_pub = rospy.Publisher('micasense_data', micasense, queue_size=10)
 rospy.init_node('micasense_wedge', anonymous=True)
 bridge = CvBridge()
 
@@ -109,7 +109,13 @@ def load_data_from_files(paths):
 
         # Convert numpy array to ROS array
         ros_img = bridge.cv2_to_imgmsg(img_arr,encoding="passthrough")
-
+        # mica_pub.publish(ros_img)
+        # ros_img = img_arr
+        #print(img_arr)
+        #print(type(ros_img))
+        # plt.imshow(ros_img, interpolation='nearest')
+        # plt.show()
+        #exit()
         # Update micasense message (Note: Not 100% on these but I assumed images are ordered by wavelength)
         if key == '1': 
             mica_msg.img_b = ros_img
